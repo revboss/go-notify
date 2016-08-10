@@ -67,13 +67,18 @@ func TestNotify(t *testing.T) {
 
 		g.Describe("Send", func() {
 			g.It("Should send a notification", func() {
-				count := 0
+				count := make(chan int)
 
 				notifications := notify.New(TestQueue, "test-queue")
 				notifications.Rate = 1 * time.Second
 
 				go func() {
-					var notification notify.Notification
+					var (
+						notification notify.Notification
+
+						i = 0
+					)
+
 					for {
 						e := notifications.Receive(&notification)
 						g.Assert(e).Equal(nil)
@@ -83,7 +88,8 @@ func TestNotify(t *testing.T) {
 						data := notification.Data.(*TestData)
 						g.Assert(data.String).Equal("string")
 
-						count++
+						i++
+						count <- i
 					}
 				}()
 
@@ -105,9 +111,7 @@ func TestNotify(t *testing.T) {
 				})
 				g.Assert(e).Equal(nil)
 
-				time.Sleep(2 * time.Second)
-
-				g.Assert(count > 0).IsTrue()
+				g.Assert(<-count > 0).IsTrue()
 			})
 
 			g.It("Should not be able to send a notification without a schema", func() {
