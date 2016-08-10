@@ -1,3 +1,7 @@
+dependencies:
+  pre:
+    - git config --global url."git@github.com:".insteadOf "https://github.com/"
+
 test:
   override:
     - go test -v -race
