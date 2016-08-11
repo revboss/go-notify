@@ -102,6 +102,7 @@ func (n Notifications) receive() {
 
 		for _, message := range notifications.Messages {
 			_, e := n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
+				QueueUrl:      aws.String(n.QueueURL),
 				ReceiptHandle: message.ReceiptHandle,
 			})
 			if e != nil {
