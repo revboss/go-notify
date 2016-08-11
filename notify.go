@@ -101,15 +101,6 @@ func (n Notifications) receive() {
 		}
 
 		for _, message := range notifications.Messages {
-			_, e := n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
-				QueueUrl:      aws.String(n.QueueURL),
-				ReceiptHandle: message.ReceiptHandle,
-			})
-			if e != nil {
-				n.ch <- e
-				continue
-			}
-
 			notification := Notification{}
 
 			e = json.Unmarshal([]byte(*message.Body), &notification)
@@ -139,6 +130,15 @@ func (n Notifications) receive() {
 			}
 
 			notification.Data = re
+
+			_, e = n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
+				QueueUrl:      aws.String(n.QueueURL),
+				ReceiptHandle: message.ReceiptHandle,
+			})
+			if e != nil {
+				n.ch <- e
+				continue
+			}
 
 			n.ch <- notification
 		}
