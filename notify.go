@@ -100,48 +100,52 @@ func (n Notifications) receive() {
 			continue
 		}
 
-		for _, message := range notifications.Messages {
-			notification := Notification{}
+		n.handle(notifications)
+	}
+}
 
-			e = json.Unmarshal([]byte(*message.Body), &notification)
-			if e != nil {
-				n.ch <- e
-				continue
-			}
+func (n Notifications) handle(notifications *sqs.ReceiveMessageOutput) {
+	for _, message := range notifications.Messages {
+		notification := Notification{}
 
-			schema, ok := n.Schemas[notification.Type][notification.Version]
-			if !ok {
-				n.ch <- fmt.Errorf("Schema does not exist: %s:%d", notification.Type, notification.Version)
-				continue
-			}
-
-			data, e := base64.StdEncoding.DecodeString(notification.Data.(string))
-			if e != nil {
-				n.ch <- e
-				continue
-			}
-
-			re := reflect.New(reflect.TypeOf(schema.Schema)).Interface()
-
-			e = json.Unmarshal(data, re)
-			if e != nil {
-				n.ch <- e
-				continue
-			}
-
-			notification.Data = re
-
-			_, e = n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
-				QueueUrl:      aws.String(n.QueueURL),
-				ReceiptHandle: message.ReceiptHandle,
-			})
-			if e != nil {
-				n.ch <- e
-				continue
-			}
-
-			n.ch <- notification
+		e := json.Unmarshal([]byte(*message.Body), &notification)
+		if e != nil {
+			n.ch <- e
+			continue
 		}
+
+		schema, ok := n.Schemas[notification.Type][notification.Version]
+		if !ok {
+			n.ch <- fmt.Errorf("Schema does not exist: %s:%d", notification.Type, notification.Version)
+			continue
+		}
+
+		data, e := base64.StdEncoding.DecodeString(notification.Data.(string))
+		if e != nil {
+			n.ch <- e
+			continue
+		}
+
+		re := reflect.New(reflect.TypeOf(schema.Schema)).Interface()
+
+		e = json.Unmarshal(data, re)
+		if e != nil {
+			n.ch <- e
+			continue
+		}
+
+		notification.Data = re
+
+		_, e = n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
+			QueueUrl:      aws.String(n.QueueURL),
+			ReceiptHandle: message.ReceiptHandle,
+		})
+		if e != nil {
+			n.ch <- e
+			continue
+		}
+
+		n.ch <- notification
 	}
 }
 
