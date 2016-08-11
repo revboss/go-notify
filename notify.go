@@ -42,7 +42,7 @@ func New(sqs SQS, queue string) *Notifications {
 	notifications := &Notifications{
 		QueueURL: queue,
 		Schemas:  make(map[string]map[int]Schema),
-		Rate:     5 * time.Second,
+		Rate:     1 * time.Second,
 		SQS:      sqs,
 
 		ch: make(chan interface{}),
