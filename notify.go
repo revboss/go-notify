@@ -82,7 +82,8 @@ func (n Notifications) receive() (Notification, error) {
 	for {
 		time.Sleep(n.Rate)
 		notifications, err = n.SQS.ReceiveMessage(&sqs.ReceiveMessageInput{
-			QueueUrl: aws.String(n.QueueURL),
+			QueueUrl:            aws.String(n.QueueURL),
+			MaxNumberOfMessages: aws.Int64(1),
 		})
 
 		// HANDLE TIMEOUT ERRORS HERE SEPARATELY FROM OTHER ERRORS SINCE
