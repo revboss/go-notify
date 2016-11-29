@@ -66,87 +66,95 @@ func (n Notifications) AddSchema(schema Schema) error {
 }
 
 func (n Notifications) Receive(notification *Notification) error {
-	go n.receive()
-
-	data, ok := <-n.ch
-	if !ok {
-		return fmt.Errorf("Receive channel unexpectedly closed.")
+	data, err := n.receive()
+	if err != nil {
+		return err
 	}
 
-	switch data.(type) {
-	case Notification:
-		*notification = data.(Notification)
-		return nil
-
-	case error:
-		return data.(error)
-	}
-
-	return fmt.Errorf("Got unexpected data on Receive channel: %+v\n", data)
+	*notification = data
+	return nil
 }
 
-func (n Notifications) receive() {
+func (n Notifications) receive() (Notification, error) {
+	var notifications *sqs.ReceiveMessageOutput
+	var err error
+
 	for {
 		time.Sleep(n.Rate)
-		notifications, e := n.SQS.ReceiveMessage(&sqs.ReceiveMessageInput{
+		notifications, err = n.SQS.ReceiveMessage(&sqs.ReceiveMessageInput{
 			QueueUrl: aws.String(n.QueueURL),
 		})
-		if e != nil {
-			n.ch <- e
-			continue
+
+		// HANDLE TIMEOUT ERRORS HERE SEPARATELY FROM OTHER ERRORS SINCE
+		// WE MAY SWITCH TO LONG POLLING (WHICH CAN TIMEOUT OFTEN) SO
+		// THAT WE CAN DECREASE IDLE LOOPING HERE. THE ACTION TO TAKE ON
+		// TIMEOUT IS TO CALL `continue`.
+
+		if err != nil {
+			return Notification{}, err
 		}
+
+		//THE FOLLOWING WOULD BECOME OBSOLETE WITH LONG POLLING SINCE WE
+		//ARE GUARANTEED TO HAVE AT LEAST ONE MESSAGE.
 
 		if len(notifications.Messages) == 0 {
 			continue
 		}
 
-		n.handle(notifications)
+		break
 	}
+
+	data, err := n.handle(notifications)
+
+	if err != nil {
+		return Notification{}, err
+	}
+
+	return data, nil
 }
 
-func (n Notifications) handle(notifications *sqs.ReceiveMessageOutput) {
-	for _, message := range notifications.Messages {
-		notification := Notification{}
+func (n Notifications) handle(notifications *sqs.ReceiveMessageOutput) (Notification, error) {
+	notification := Notification{}
 
-		e := json.Unmarshal([]byte(*message.Body), &notification)
-		if e != nil {
-			n.ch <- e
-			continue
-		}
+	//We only handle only one message at a time all remaining messages get
+	//put back on the queue for later retrieval this can be optimized in the
+	//future (some of our queues have a max message retrieval of 1 anyway).
 
-		schema, ok := n.Schemas[notification.Type][notification.Version]
-		if !ok {
-			n.ch <- fmt.Errorf("Schema does not exist: %s:%d", notification.Type, notification.Version)
-			continue
-		}
+	message := notifications.Messages[0]
 
-		data, e := base64.StdEncoding.DecodeString(notification.Data.(string))
-		if e != nil {
-			n.ch <- e
-			continue
-		}
-
-		re := reflect.New(reflect.TypeOf(schema.Schema)).Interface()
-
-		e = json.Unmarshal(data, re)
-		if e != nil {
-			n.ch <- e
-			continue
-		}
-
-		notification.Data = re
-
-		_, e = n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
-			QueueUrl:      aws.String(n.QueueURL),
-			ReceiptHandle: message.ReceiptHandle,
-		})
-		if e != nil {
-			n.ch <- e
-			continue
-		}
-
-		n.ch <- notification
+	e := json.Unmarshal([]byte(*message.Body), &notification)
+	if e != nil {
+		return Notification{}, e
 	}
+
+	schema, ok := n.Schemas[notification.Type][notification.Version]
+	if !ok {
+		return Notification{}, fmt.Errorf("Schema does not exist: %s:%d", notification.Type, notification.Version)
+	}
+
+	data, e := base64.StdEncoding.DecodeString(notification.Data.(string))
+	if e != nil {
+		return Notification{}, e
+	}
+
+	re := reflect.New(reflect.TypeOf(schema.Schema)).Interface()
+
+	e = json.Unmarshal(data, re)
+	if e != nil {
+		return Notification{}, e
+	}
+
+	notification.Data = re
+
+	_, e = n.SQS.DeleteMessage(&sqs.DeleteMessageInput{
+		QueueUrl:      aws.String(n.QueueURL),
+		ReceiptHandle: message.ReceiptHandle,
+	})
+	if e != nil {
+		return Notification{}, e
+	}
+
+	return notification, nil
 }
 
 func (n Notifications) Send(notification Notification) error {
